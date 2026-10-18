@@ -4,7 +4,6 @@ const { createCanvas, loadImage, clearAllCache } = require('@napi-rs/canvas');
 const app = express();
 app.use(express.json({ limit: '20mb' }));
 
-// Helper to fetch the official 6000x5800 PNG from remote graph server
 async function fetchGraphImage(payload) {
   const res = await fetch('http://88.99.190.15/graph', {
     method: 'POST',
@@ -42,10 +41,7 @@ function drawCardBottom(ctx, left, right, top, bottom, radius, lineWidth, fillCo
   ctx.lineTo(right - lineWidth / 2, top);
   ctx.stroke();
   ctx.restore();
-}
 
-// Concurrency queue to guarantee that at most 1 heavy image is processed at any given time.
-// This strictly caps memory usage below ~180-220 MB, preventing OOM even with 100+ concurrent users.
 class RenderQueue {
   constructor(concurrency = 1) {
     this.concurrency = concurrency;
@@ -80,18 +76,14 @@ class RenderQueue {
 
 const renderQueue = new RenderQueue(1);
 
-// Helper to queue render requests
 function queueRender(imgBuffer, isNatro) {
   if (isNatro) {
     return Promise.resolve(imgBuffer);
   }
   return renderQueue.run(() => processImageBranding(imgBuffer, isNatro));
 }
-
-// Function to patch the footer branding if Natro Branding is OFF
 async function processImageBranding(imgBuffer, isNatro) {
   if (isNatro) {
-    // If Natro Branding is ON, return the official 100% untouched Natro image!
     return imgBuffer;
   }
 
@@ -101,16 +93,13 @@ async function processImageBranding(imgBuffer, isNatro) {
 
   try {
     img = await loadImage(imgBuffer);
-
-    // Scale down from 6000x5800 to 2000px width.
-    // Preserves 100% crisp Retina quality for Discord while reducing RAM by over 80%!
+    
     const targetW = 2000;
     const targetH = Math.round(img.height * (targetW / img.width));
     canvas = createCanvas(targetW, targetH);
     ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0, targetW, targetH);
 
-    // Free the large raw 6000x5800 image buffer from Skia immediately
     try { img.src = Buffer.alloc(0); } catch (_) {}
     img = null;
 
@@ -126,7 +115,6 @@ async function processImageBranding(imgBuffer, isNatro) {
     const radius = 20 * scale;
     const lineWidth = 10 * scale;
 
-    // 1. Clear footer area below the card first with column background #201e20
     const colLeft = 4320 * scale;
     const colWidth = 1560 * scale;
     const footerStartY = newBottomY - 5 * scale;
@@ -135,10 +123,8 @@ async function processImageBranding(imgBuffer, isNatro) {
     ctx.fillStyle = '#201e20';
     ctx.fillRect(colLeft, footerStartY, colWidth, footerH);
 
-    // 2. STATS card extension: extend cleanly down to newBottomY
     drawCardBottom(ctx, cardLeft, cardRight, startRowY, newBottomY, radius, lineWidth, '#2c2a2c', '#353335');
 
-    // Redraw the 9th stat row cleanly with full padding!
     const textBaselineY = 5205 * scale;
     ctx.font = 'bold ' + Math.round(58 * scale) + 'px "Segoe UI", sans-serif';
     ctx.fillStyle = '#ccffffff';
@@ -149,7 +135,6 @@ async function processImageBranding(imgBuffer, isNatro) {
     ctx.textAlign = 'left';
     ctx.fillText('0', centerX + 40 * scale, textBaselineY);
 
-    // Dash line —
     ctx.fillStyle = '#666666';
     const dashX = centerX + 260 * scale;
     const dashY = textBaselineY - 18 * scale;
@@ -157,15 +142,12 @@ async function processImageBranding(imgBuffer, isNatro) {
     ctx.roundRect(dashX, dashY, 50 * scale, 12 * scale, 6 * scale);
     ctx.fill();
 
-    // 3. Draw 3 clean lines requested by user
-    // Line 1: kingstawww HUB Analytics v2.3
     ctx.font = 'bold ' + Math.round(58 * scale) + 'px "Segoe UI", sans-serif';
     ctx.fillStyle = '#f5b937';
     ctx.textAlign = 'center';
     const line1Y = newBottomY + 110 * scale;
-    ctx.fillText('kingstawww HUB Analytics v2.3', centerX, line1Y);
+    ctx.fillText('kingstawww HUB v0.2', centerX, line1Y);
 
-    // Line 2: Date & Range
     const now = new Date();
     const dStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     const hNow = now.getHours();
@@ -175,7 +157,6 @@ async function processImageBranding(imgBuffer, isNatro) {
     const line2Y = line1Y + 95 * scale;
     ctx.fillText(hRange + ' • ' + dStr, centerX, line2Y);
 
-    // Line 3: discord.gg/kingstawwwhub
     ctx.font = 'bold ' + Math.round(54 * scale) + 'px "Segoe UI", sans-serif';
     ctx.fillStyle = '#58a6ff';
     const line3Y = line2Y + 105 * scale;
@@ -197,7 +178,6 @@ async function processImageBranding(imgBuffer, isNatro) {
   }
 }
 
-// 1. Health check
 app.get('/', (req, res) => {
   res.json({
     status: 'ok',
@@ -207,7 +187,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// 2. Raw PNG render endpoint
 app.post('/graph', async (req, res) => {
   try {
     const isNatro = Boolean(req.body && req.body.hidebranding);
@@ -227,7 +206,6 @@ app.post('/graph', async (req, res) => {
   }
 });
 
-// 3. Render and post directly to Discord Webhook
 app.post('/graph/message', async (req, res) => {
   try {
     const targetWebhook = req.body && req.body.webhook;
@@ -285,7 +263,6 @@ app.post('/graph/message', async (req, res) => {
   }
 });
 
-// Helper to fetch honey meter PNG
 async function fetchHoneyImage(stats) {
   const res = await fetch('http://88.99.190.15/honey', {
     method: 'POST',
@@ -305,7 +282,6 @@ async function fetchHoneyImage(stats) {
   return Buffer.from(await res.arrayBuffer());
 }
 
-// 4. Raw Honey PNG endpoint
 app.post('/honey', async (req, res) => {
   try {
     const pngBuf = await fetchHoneyImage(req.body || {});
@@ -318,7 +294,6 @@ app.post('/honey', async (req, res) => {
   }
 });
 
-// 5. Honey message endpoint (posts embed + honey PNG to Discord)
 app.post('/honey/message', async (req, res) => {
   try {
     const targetWebhook = req.body && req.body.webhook;
